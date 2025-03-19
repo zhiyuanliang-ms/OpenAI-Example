@@ -1,12 +1,12 @@
-import express from "express";
-import { AzureAppConfiguration, load }  from "@azure/app-configuration-provider";
+import { load }  from "@azure/app-configuration-provider";
 import { DefaultAzureCredential } from "@azure/identity";
 import { FeatureManager, ConfigurationMapFeatureFlagProvider } from "@microsoft/feature-management";
+import { ChatService } from './chatService.js';
+import { ChatRequest, ChatResponse, LLMConfiguraion } from './types.js';
+import { ChatbotLLMFeatureName, ChatLLMConfigurationName, ChatLLM2ConfigurationName } from './features.js';
 
-const server = express();
 const credential = new DefaultAzureCredential();
-let appConfig: AzureAppConfiguration = await load("https://appconfig-lzy.azconfig.io", credential, {
-    selectors: [{ keyFilter: "AzureOpenAI:*"}],
+const config = await load(process.env.APPCONFIG_ENDPOINT!, credential, {
     refreshOptions: {
         enabled: true,
     },
@@ -21,58 +21,57 @@ let appConfig: AzureAppConfiguration = await load("https://appconfig-lzy.azconfi
     }
 });
 
+const featureFlagProvider = new ConfigurationMapFeatureFlagProvider(config);
+const featureManager = new FeatureManager(featureFlagProvider);
 
-// let featureManager: FeatureManager;
-// async function initializeConfig() {
-//     console.log("Loading configuration...");
-//     appConfig = await load("https://appconfig-lzy.azconfig.io", credential, {
-//         selectors: [{ keyFilter: "AzureOpenAI:*"}],
-//         refreshOptions: {
-//             enabled: true,
-//         },
-//         featureFlagOptions: {
-//             enabled: true,
-//             refresh: {
-//                 enabled: true
-//             }
-//         },
-//         keyVaultOptions: {
-//             credential: credential
-//         }
-//     });
+const chatService = new ChatService({
+    apiKey: config.get("AzureOpenAI:ApiKey"),
+    endpoint: config.get("AzureOpenAI:Endpoint")
+});
 
-//     const featureFlagProvider = new ConfigurationMapFeatureFlagProvider(appConfig);
-//     featureManager = new FeatureManager(featureFlagProvider);
-// }
+import express from "express";
 
-// function startServer() {
-//     server.use((req, res, next) => {
-//         appConfig.refresh();
-//         next();
-//     });
-//     server.use(express.json());
-//     server.use(express.static("public"));
+const server = express();
+server.use(express.json());
+server.use(express.static("public"));
+server.use((req, res, next) => {
+    config.refresh();
+    next();
+});
 
-//     server.get("/api/chat/model", (req, res) => {
-//         res.send("gpt-3.5-turbo");
-//     });
+server.post('/api/chat', async (req, res) => {
+    const chatRequest = req.body as ChatRequest;
+    const llmConfiguraion = await getLLMConfiguration();
+    if (llmConfiguraion === undefined) {
+        res.status(500).send("LLM configuration not found");
+    }
+    const history = chatRequest.history ?? [];
+    history.push({ role: "user", content: chatRequest.message, timestamp: new Date() });
+    const messages = [...(llmConfiguraion?.messages ?? []), ...history.map(item => ({ role: item.role, content: item.content }))];
+    const responseContent = await chatService.getChatCompletion(messages, llmConfiguraion!);
+    history.push({ role: "assistant", content: responseContent!, timestamp: new Date() });
+    res.json({
+        message: responseContent,
+        history: history
+    } as ChatResponse);
+});
 
-//     server.post("/api/chat", async (req, res) => {
+server.get('/api/chat/model', async (req, res) => {
+    const llmConfiguraion = await getLLMConfiguration();
+    if (llmConfiguraion === undefined) {
+        res.status(500).send("LLM configuration not found");
+    }
+    res.send(llmConfiguraion?.model);
+});
 
-//     });
+const port = process.env.PORT || 3000;
+server.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}`);
+});
 
-//     const port = process.env.PORT || "8080";
-//     server.listen(port, () => {
-//         console.log(`Server is running at http://localhost:${port}`);
-//     });
-// }
-
-// initializeConfig()
-//     .then(() => {
-//         console.log("Configuration loaded. Starting server...");
-//         startServer();
-//     })
-//     .catch((error) => {
-//         console.error("Failed to load configuration:", error);
-//         process.exit(1);
-//     });
+async function getLLMConfiguration(): Promise<LLMConfiguraion | undefined> {
+    if (await featureManager.isEnabled(ChatbotLLMFeatureName)) {
+        return config.get(ChatLLM2ConfigurationName);
+    }
+    return config.get(ChatLLMConfigurationName);
+}
