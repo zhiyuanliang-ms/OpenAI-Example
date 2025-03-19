@@ -1,0 +1,12 @@
+{
+    "compilerOptions": {
+      "moduleResolution": "node",
+      "target": "ES2022",
+      "module": "ESNext",
+      "rootDir": "./",
+      "outDir": "./dist",
+      "esModuleInterop": true,
+      "strict": true
+    }
+  }
+  

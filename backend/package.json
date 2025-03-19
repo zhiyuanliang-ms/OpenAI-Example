@@ -1,0 +1,19 @@
+{
+    "type": "module",
+    "scripts": {
+        "build": "npx tsc",
+        "start": "cd dist && node index.js"
+    },
+    "dependencies": {
+        "express": "^4.21.2",
+        "@azure/app-configuration-provider": "latest",
+        "@microsoft/feature-management": "latest",
+        "@azure/openai": "^2.0.0",
+        "openai": "^4.87.4"
+    },
+    "devDependencies": {
+        "@types/express": "^5.0.0",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.8.2"
+    }
+}
